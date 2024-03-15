@@ -15,10 +15,24 @@ cd GDFold2
 3. install Python packages
 
 ```bash
-conda create -n gdfold2 python=3.11
+conda create -n gdfold2 python=3.8.11
 conda activate gdfold2
-conda install pytorch pytorch-cuda=11.8 -c pytorch -c nvidia
+
+pip install numpy==1.23.0
 pip install biopython
+pip install torch==1.10.1+cu111 torchvision==0.11.2+cu111 torchaudio==0.10.1 -f https://download.pytorch.org/whl/cu111/torch_stable.html
+pip install setuptools==52.0.0
+pip install scipy==1.10.1
+pip install tqdm==4.66.2
+pip install numba==0.58.1
+pip install h5py==3.10.0
+pip install pandas==2.0.3
+pip install tensorboard==2.14.0
+pip install --no-index torch-scatter -f https://pytorch-geometric.com/whl/torch-1.10.1+cu111.html
+pip install --no-index torch-sparse -f https://pytorch-geometric.com/whl/torch-1.10.1+cu111.html
+pip install --no-index torch-cluster -f https://pytorch-geometric.com/whl/torch-1.10.1+cu111.html
+pip install --no-index torch-spline-conv -f https://pytorch-geometric.com/whl/torch-1.10.1+cu111.html
+pip install torch_geometric==2.2.0
 ```
 
 ## Usage
@@ -74,3 +88,7 @@ Example:
 ```bash
 python relax.py --input example/101M_1.pdb --output example/relax.pdb
 ```
+
+## Reference
+
+[GDFold2: a fast and parallelizable protein folding environment with freely defined objective functions](https://doi.org/10.1101/2024.03.13.584741)
