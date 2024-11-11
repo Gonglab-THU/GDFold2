@@ -5,10 +5,11 @@ import torch.nn.functional as F
 
 class Network(nn.Module):
     """
-    Registers the coordinates of CA atoms and the rotations of local coordinate 
-    systems as learnable parameters.
+    Atomic coordinate network.
+    
+    It registers the CA coordinates and the relative rotations of all residues as learnable parameters.
 
-    batch (int): number of structures to predict simultaneously
+    batch (int): number of protein structures folded simultaneously
     length (int): length of the target protein sequence
     """
     def __init__(self, batch, length):
@@ -28,18 +29,17 @@ class GradientDescent:
     """"
     Protein folding environment based on gradient descent.
 
-    Takes protein sequence and predicted geometric information as input and constructs multiple
-    constraints loss functions to update the network parameters and returns the coordinates
-    of backbone atoms.
+    Takes protein sequence and geometric information as input and constructs multiple 
+    constraints loss functions to update the learnable parameters.
 
     seq (list): protein sequence in numerical coding
-    pred (dict): predicted geometric information
+    pred (dict): geometric information
     params (dict): statistical parameters
-    npose (int): number of structures to predict simultaneously
+    npose (int): number of protein structures folded simultaneously
     decive (str): if 'cuda:0', run on GPU 0, else on cpu
     steps (int): number of optimization steps
     """
-    def __init__(self, seq, pred, params, npose=1, steps=400, device='cpu'):
+    def __init__(self, seq, pred, params, npose, steps, device='cpu'):
         self.seq = seq
         self.length = len(seq)
         self.pred = pred
@@ -58,7 +58,7 @@ class GradientDescent:
         '''
         Convert Euler Angle into rotation matrix.
 
-        theta (tensor): Euler Angle, shape = [batch, length, 3]
+        theta (tensor): Euler Angle
         '''
         zeron = torch.zeros(self.npose, self.length, device=self.device)
         onen = torch.ones(self.npose, self.length, device=self.device)
@@ -89,9 +89,9 @@ class GradientDescent:
     
     def _coords2rot(self, a, b, c):
         '''
-        Calculate the rotation of local coordinate system.
+        Calculate the rotation matrix of local coordinate system.
 
-        a, b, c (tensor): global coordinates, shape = [batch, length, 3]
+        a, b, c (tensor): global coordinates
         '''
         axis_x = F.normalize(a - b)
         axis_z = F.normalize(torch.cross(axis_x, c - b))
@@ -104,8 +104,8 @@ class GradientDescent:
         '''
         Infer the coordinates of oxygen atoms.
 
-        mat (tensor): rotation matrix, shape = [batch, length, 3, 3]
-        coords (list): global coordinates of the backbone atoms
+        mat (tensor): rotation matrix
+        coords (list): coordinates of the main-chain atoms (CA, C, N, CB, CEN)
         '''
         oxy = self.params['oxygen'].to(self.device)
         oxy_last = self.params['oxygen_last'].to(self.device)
@@ -120,8 +120,8 @@ class GradientDescent:
         '''
         Infer the coordinates of hydrogen atoms.
 
-        mat (tensor): rotation matrix, shape = [batch, length, 3, 3]
-        coords (list): global coordinates of the backbone atoms
+        mat (tensor): rotation matrix
+        coords (list): coordinates of the main-chain atoms (CA, C, N, CB, CEN)
         '''
         hyd = self.params['hydrogen'].to(self.device)
         hyd_first = self.params['hydrogen_first'].to(self.device)
@@ -134,10 +134,10 @@ class GradientDescent:
     
     def _info(self, CA, Theta, OH=False):
         '''
-        Calculate the global coordinates of backbone atoms.
+        Calculate the coordinates of backbone atoms.
         
-        CA (tensor): coordinates of CA atoms, shape = [batch, length, 3]
-        Theta (tensor): rotations of local coordinate systems, shape = [batch, length, 3]
+        CA (tensor): coordinates of CA atioms
+        Theta (tensor): rotations of local coordinate systems
         OH (bool): if true, calculate the coordinates of oxygen and hydrogen atoms
         '''
         mat = self._theta2mat(Theta)
@@ -158,25 +158,25 @@ class GradientDescent:
         angleB_label = self.params['angleB'].to(self.device)
         omega_label = self.params['omega'].to(self.device)
         
-        # peptide bond constraint
+        # peptide bond
         bond_pred = torch.linalg.norm(coords[1][:, :-1] - coords[2][:, 1:], dim=-1)
         forward = F.pad(torch.abs(bond_pred - bond_label), [0, 1])
         backward = F.pad(torch.abs(bond_pred - bond_label), [1, 0])
         bond_loss = torch.sum(forward + backward, dim=-1).mean()
 
-        # peptide angle CA(i-1)-C(i-1)-N(i) constraint
+        # angle CA(i-1)-C(i-1)-N(i)
         c_ca = F.normalize(coords[0][:, :-1] - coords[1][:, :-1], dim=-1)
         c_n = F.normalize(coords[2][:, 1:] - coords[1][:, :-1], dim=-1)
         angleA = torch.acos(torch.sum(c_ca * c_n, dim=-1))
         angleA_loss = torch.sum(torch.abs(angleA - angleA_label), dim=-1).mean()
 
-        # peptide angle C(i-1)-N(i)-CA(i) constraint
+        # angle C(i-1)-N(i)-CA(i)
         n_c = F.normalize(coords[1][:, :-1] - coords[2][:, 1:], dim=-1)
         n_ca = F.normalize(coords[0][:, 1:] - coords[2][:, 1:], dim=-1)
         angleB = torch.acos(torch.sum(n_c * n_ca, dim=-1))
         angleB_loss = torch.sum(torch.abs(angleB - angleB_label), dim=-1).mean()
 
-        # peptide plane angle constraint
+        # peptide plane angles
         pro_mask = torch.ones(self.length - 1, device=self.device)
         pro_index = [i for i,x in enumerate(self.seq[1:]) if x == 13]
         pro_mask[pro_index] = 0.0
@@ -205,7 +205,7 @@ class GradientDescent:
     
     def _vdw_term(self, coords):
         '''
-        Construct the Van der Waals repulsive force constraint
+        Construct the van der Waals repulsive force constraint
         '''
         vdw_mask = self.params['vdw_mask'].repeat(self.npose, 1, 1).to(self.device)
         vdw_dist = self.params['vdw_dist'].repeat(self.npose, 1, 1).to(self.device)
@@ -216,29 +216,27 @@ class GradientDescent:
     
     def _vector_term(self, mat, coords):
         '''
-        Construct the predicted constraint
+        Construct the geometric constraint
         '''
         loss = nn.MSELoss(reduction='none')
-        reference = self.pred['reference']
-        rotation = self.pred['rotation'].repeat(self.npose, 1, 1, 1, 1).to(self.device)
-        translation = self.pred['translation'].repeat(self.npose, 1, 1, 1).to(self.device)
-        local = self.local[..., :4].unsqueeze(1)
-        vectors_label = rotation @ local + translation.unsqueeze(-1)
-        backbone = torch.stack(coords[:4], dim=-1).unsqueeze(1)
-        CA_ref = coords[0][:, reference].unsqueeze(2).unsqueeze(-1)
-        vectors_pred = torch.inverse(mat[:, reference]).unsqueeze(2) @ (backbone - CA_ref)
-        self.vector_loss = torch.sum(loss(vectors_pred, vectors_label), dim=-2).sum(-1)
+        reference = self.pred['reference'][:self.npose]
+        translation = self.pred['translation'][:self.npose].to(self.device)
+        index = list(torch.arange(self.npose))
+        CA_ref = coords[0][index, reference]
+        coord_pred = coords[0] - CA_ref.unsqueeze(1)
+        coord_label = translation.to(self.device)
+        self.vector_loss = torch.sum(loss(coord_pred, coord_label), dim=-1)
         return self.vector_loss.mean()
   
     def _dihedral_term(self, mat, coords):
         '''
-        Construct the dihedral angle constraint
+        Construct the dihedral angles constraint
         '''
         loss = nn.MSELoss(reduction='none')
         dihedrals = self.pred['dihedrals'].to(self.device)
         pep_bond = self.params['peptide_bond'].to(self.device)
         psi, phi = dihedrals[1:, 0], dihedrals[:-1, 1]
-        # infer the coordinates of the last C atom
+        
         def last_C(phi):
             CA, C, N = [self.local[0, :, :, i] for i in range(3)]
             bond = torch.linalg.norm(N - CA, dim=-1)
@@ -254,7 +252,7 @@ class GradientDescent:
             z = -torch.sign(phi) * torch.sqrt(torch.square(v2) - 
                                               torch.square(v2 * torch.cos(phi)) + self.epsilon)
             return torch.stack([x, y, z], dim=-1)
-        # infer the coordinates of the next N atom
+        
         def next_N(psi):
             x = 0.449 * pep_bond + self.local[0, 1:-1, 0, 1]
             y = torch.sqrt(torch.square(pep_bond) - torch.square(
@@ -303,8 +301,6 @@ class GradientDescent:
             self._step(opt, epoch)
         CA, Theta = self.model(epoch)
         _, coords = self._info(CA, Theta, OH=True)
-        output = torch.stack(coords, dim=-1).detach()
-        if self.device != 'cpu':
-            output = output.cpu()
-        return output.numpy()
+        output = torch.stack(coords, dim=1).detach().cpu().numpy()
+        return output
     

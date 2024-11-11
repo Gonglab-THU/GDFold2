@@ -3,54 +3,39 @@ import torch
 import torch.nn.functional as F
 import torch_cluster
 from scipy.spatial.transform import Rotation as R
+from biopandas.pdb import PandasPdb
 
 int2AA = {0:'GLY', 1:'ALA', 2:'CYS', 3:'GLU', 4:'ASP', 5:'PHE', 6:'ILE', 7:'HIS', 
           8:'LYS', 9:'MET', 10:'LEU', 11:'ASN', 12:'GLN', 13:'PRO', 14:'SER', 
           15:'ARG', 16:'THR', 17:'TRP', 18:'VAL', 19:'TYR'}
 AA2int = {k:v for v,k in int2AA.items()}
 
-class Protein:
-    def __init__(self, file):
-        self.file = file
-        self.coords = self._get_coords()
-        self.seq = self._get_seq()
-
-    def _get_coords(self):
-        [CA, C, N, CB, CEN, O, H] = [[] for _ in range(7)]
-        with open(self.file) as f:
-            for line in f.readlines():
-                if line.startswith('ATOM'):
-                    atom_type = line[12:16].replace(' ','')
-                    res_type = line[17:20].replace(' ', '')
-                    x = float(line[30:38].replace(' ', ''))
-                    y = float(line[38:46].replace(' ', ''))
-                    z = float(line[46:54].replace(' ', ''))
-                    if atom_type == 'CA': CA.append([x, y, z])
-                    if atom_type == 'C': C.append([x, y, z])
-                    if atom_type == 'N':
-                        N.append([x, y, z])
-                        if res_type == 'PRO': 
-                            H.append([x, y, z])
-                    if atom_type == 'CB': CB.append([x, y, z])
-                    if atom_type == 'CEN':
-                        CEN.append([x, y, z])
-                        if res_type == 'GLY':
-                            CB.append([x, y, z])
-                    if atom_type == 'O': O.append([x, y, z])
-                    if atom_type == 'H': H.append([x, y, z])
-        coords = np.stack([np.array(atom) for atom in [CA, C, N, CB, CEN, O, H]], axis=0)
-        return coords
-    
-    def _get_seq(self):
-        seq = []
-        with open(self.file) as f:
-            for line in f.readlines():
-                if line.startswith('ATOM'):
-                    res_type = line[17:20].replace(' ', '')
-                    atom_type = line[12:16].replace(' ','')
-                    if atom_type == 'CA': seq.append(res_type)
-        return [AA2int[res] for res in seq]
-
+def load_pdb(pdb):
+    pdb_data = PandasPdb().read_pdb(pdb)
+    atoms = pdb_data.df['ATOM']
+    sequence = []
+    for i in range(len(atoms)):
+        if atoms.loc[i, 'atom_name'] == 'CA':
+            sequence.append(atoms.loc[i, 'residue_name'])
+    seq = [AA2int[res] for res in sequence]
+    [CA, C, N, CB, CEN, O, H] = [[] for _ in range(7)]
+    for i in range(len(atoms)):
+        x, y, z = atoms.loc[i, 'x_coord'], atoms.loc[i, 'y_coord'], atoms.loc[i, 'z_coord']
+        if atoms.loc[i, 'atom_name'] == 'CA': CA.append([x, y, z])
+        if atoms.loc[i, 'atom_name'] == 'C': C.append([x, y, z])
+        if atoms.loc[i, 'atom_name'] == 'N': 
+            N.append([x, y, z])
+            if atoms.loc[i, 'residue_name'] == 'PRO':
+                H.append([x, y, z])
+        if atoms.loc[i, 'atom_name'] == 'CB': CB.append([x, y, z])
+        if atoms.loc[i, 'atom_name'] == 'CEN': 
+            CEN.append([x, y, z])
+            if atoms.loc[i, 'residue_name'] == 'GLY':
+                CB.append([x, y, z])
+        if atoms.loc[i, 'atom_name'] == 'O': O.append([x, y, z])
+        if atoms.loc[i, 'atom_name'] == 'H': H.append([x, y, z])
+    coords = np.array([CA, C, N, CB, CEN, O, H])
+    return seq, coords
 
 class GraphData:
     def __init__(self, coords, seq, label, n_embed=16, 

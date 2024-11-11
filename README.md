@@ -1,6 +1,8 @@
 # GDFold2
 GDFold2 is a protein folding environment. It is designed to rapidly and parallelly fold the protein based on arbitrary predicted constraints, which could be freely integrated into the environment as user-defined loss functions. We provide three folding modes to match the different sources of predicted information, and users can also customize constraints according to the specific needs.
 
+![Dynamics path](Dynamics/dynamics.gif, "Dynamics path")
+
 ## Install software on Linux
 
 1. download `GDFold2`
@@ -15,80 +17,57 @@ cd GDFold2
 3. install Python packages
 
 ```bash
-conda create -n gdfold2 python=3.8.11
-conda activate gdfold2
-
-pip install numpy==1.23.0
-pip install biopython
-pip install torch==1.10.1+cu111 torchvision==0.11.2+cu111 torchaudio==0.10.1 -f https://download.pytorch.org/whl/cu111/torch_stable.html
-pip install setuptools==52.0.0
-pip install scipy==1.10.1
-pip install tqdm==4.66.2
-pip install numba==0.58.1
-pip install h5py==3.10.0
-pip install pandas==2.0.3
-pip install tensorboard==2.14.0
-pip install --no-index torch-scatter -f https://pytorch-geometric.com/whl/torch-1.10.1+cu111.html
-pip install --no-index torch-sparse -f https://pytorch-geometric.com/whl/torch-1.10.1+cu111.html
-pip install --no-index torch-cluster -f https://pytorch-geometric.com/whl/torch-1.10.1+cu111.html
-pip install --no-index torch-spline-conv -f https://pytorch-geometric.com/whl/torch-1.10.1+cu111.html
-pip install torch_geometric==2.2.0
+conda create -n GDFold2 python=3.8.20
+conda activate GDFold2
+conda install numpy biopython pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.3 -c pytorch
+conda install scipy tqdm numba pandas
+conda install biopandas -c conda-forge
+conda install pyg -c pyg
+pip install --no-index torch-scatter -f https://pytorch-geometric.com/whl/torch-1.12.1%2Bcu113.html
+pip install --no-index torch-cluster -f https://pytorch-geometric.com/whl/torch-1.12.1%2Bcu113.html
 ```
+
+4. install `PyRosetta` at [PyRosetta LICENSE](https://www.pyrosetta.org/home/licensing-pyrosetta)
 
 ## Usage
-We provide two scripts in GDFold2:
-* `fold.py`: takes protein sequence and predicted geometric information as inputs and predict protein structure (centroid model).
-* `relax.py`: converts centroid model into full-atom structure and perform FastRelax.
+### GDFold2
+* `fold.py`: input protein sequence (`.fasta file`) and predicted geometric information (`.npz file`) and output protein structure(s).
 
-### Folding
-Run `python fold.py -h` for more detailed options.
-```bash
-usage: fold.py [-h] [-n NPOSE] [-s STEPS] [-d DEVICE] [-m {Cerebra,SPIRED,Rosetta}] fasta pred output
+  Example:
+  ```bash
+  python fold.py example/test.fasta example/test.npz example -d cuda
+  ```
 
-GDFold2: a fast and parallelizable protein folding environment
+  Run `python fold.py -h` for more detailed options.
 
-positional arguments:
-  fasta                 input protein sequence (.fasta format)
-  pred                  input predicted geometric information (.npz format)
-  output                output directory name
 
-optional arguments:
-  -h, --help            show this help message and exit
-  -n NPOSE              number of structures to predict simultaneously, default=1
-  -s STEPS              number of optimization steps, default=400
-  -d DEVICE             device to run the task, default=cpu
-  -m {Cerebra,SPIRED,Rosetta}
-                        source of the predicted geometric information, default=Cerebra
-```
+* `relax.py`: perform FastRelax procedure on protein models.
+  
+  Example:
+  ```bash
+  python relax.py --input example/101M_1.pdb --output example/relax.pdb
+  ```
+  Run `python relax.py -h` for more detailed options.
 
+### QAmodel
+`run.py`: input a directory containing multiple protein sturctures folded by GDFold2 and output the ranking file `rank.txt`.
+  
 Example:
 ```bash
-python fold.py example/test.fasta example/test.npz example -m SPIRED -d cuda:0
+python QAmodel/run.py --input QAmodel/example
 ```
+Run `python QAmodel/run.py -h` for more detailed options.
 
-### FastRelax
+### Dynamics
+* `pdb2cst.py`: input two conformational states (`.pdb file`) of the same protein target and output the protein sequence file (`comb.fasta`) and the geometric constraint file (`comb.npz`) in the designated directory path.
+  
+  Example:
+  ```bash
+  python Dynamics/pdb2cst.py --state1 Dynamics/1ake_A.pdb --state2 Dynamics/4ake_A.pdb --output Dynamics
+  ```
+  Run `python Dynamics/pdb2cst.py -h` for more detailed options.
 
-Run `python relax.py -h` for more detailed options.
-```bash
-usage: relax.py [-h] [--input INPUT] [--output OUTPUT] [--repeat REPEAT] [--cycle CYCLE]
-
-Perform FastRelax on predicted protein structure
-
-optional arguments:
-  -h, --help       show this help message and exit
-  --input INPUT    input unrelaxed model
-  --output OUTPUT  output model (.pdb format)
-  --repeat REPEAT  number of repeats, default=2
-  --cycle CYCLE    number of max cycles, default=200
-```
-
-:exclamation: install `PyRosetta` at [PyRosetta LICENSE](https://www.pyrosetta.org/home/licensing-pyrosetta)
-
-Example:
-```bash
-python relax.py --input example/101M_1.pdb --output example/relax.pdb
-```
-
-## Reference
-
-[GDFold2: a fast and parallelizable protein folding environment with freely defined objective functions](https://doi.org/10.1101/2024.03.13.584741)
+* Then, run `fold.py` to fold the possible conformations during the transition path of the two conformational states:
+  ```bash
+  python fold.py Dynamics/comb.fasta Dynamics/comb.npz Dynamics/dynamics -n 50 -m Dynamics -d cuda
+  ```

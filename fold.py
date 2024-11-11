@@ -2,41 +2,73 @@ import math
 import timeit
 import numpy as np
 import torch
-from Bio import SeqIO
 import torch.nn as nn
 import torch.nn.functional as F
 from argument import *
 from utils import *
 from core import GradientDescent
 
+class SPIRED(GradientDescent):
+    """
+    Protein folding environment for SPIRED.
+    """
+    def _vector_term(self, mat, coords):
+        assert self.npose <= len(self.pred['reference']), "The number of structures to be folded cannot exceed the length of 'reference'!"
+        super()._vector_term(mat, coords)
+        return self.vector_loss.mean()
+    
+    def _dihedral_term(self, mat, coords):
+        super()._dihedral_term(mat, coords)
+        return self.dihedral_loss.mean()
+
 class Cerebra(GradientDescent):
     """
     Protein folding environment for Cerebra.
     """
     def _vector_term(self, mat, coords):
-        super()._vector_term(mat, coords)
+        loss = nn.MSELoss(reduction='none')
+        reference = self.pred['reference']
+        rotation = self.pred['rotation'].repeat(self.npose, 1, 1, 1, 1).to(self.device)
+        translation = self.pred['translation'].repeat(self.npose, 1, 1, 1).to(self.device)
+        local = self.local[..., :4].unsqueeze(1)
+        vectors_label = rotation @ local + translation.unsqueeze(-1)
+        backbone = torch.stack(coords[:4], dim=-1).unsqueeze(1)
+        CA_ref = coords[0][:, reference].unsqueeze(2).unsqueeze(-1)
+        vectors_pred = torch.inverse(mat[:, reference]).unsqueeze(2) @ (backbone - CA_ref)
+        self.vector_loss = torch.sum(loss(vectors_pred, vectors_label), dim=-2).sum(-1)
         return self.vector_loss.mean()
 
     def _dihedral_term(self, mat, coords):
         super()._dihedral_term(mat, coords)
         return self.dihedral_loss.mean()
-
-
-class SPIRED(GradientDescent):
+    
+class Dynamics(GradientDescent):
     """
-    Protein folding environment for Spried.
+    Protein folding environment for exploring the structural dynamics.
     """
+    def _reshape(self):
+        super()._reshape()
+        self.weights = F.softmax(torch.randn(self.npose, 2, device=self.device), dim=1)[:, :, None, None, None, None]
+
     def _vector_term(self, mat, coords):
         loss = nn.MSELoss(reduction='none')
-        reference = self.pred['reference'][:self.npose]
-        translation = self.pred['translation'][:self.npose].to(self.device)
-        index = list(torch.arange(self.npose))
-        CA_ref = coords[0][index, reference]
-        coord_pred = coords[0] - CA_ref.unsqueeze(1)
-        coord_label = translation.to(self.device)
-        self.vectors_loss = torch.sum(loss(coord_pred, coord_label), dim=-1)
-        return self.vectors_loss.mean()
+        reference = self.pred['reference'].expand(self.npose, -1, -1).long().to(self.device)
+        rotation = self.pred['rotation'].repeat(self.npose, 1, 1, 1, 1, 1).to(self.device)
+        translation = self.pred['translation'].repeat(self.npose, 1, 1, 1, 1).to(self.device)
+        local = self.local[..., :4].unsqueeze(1).unsqueeze(2)
+        vectors_label = rotation @ local + translation.unsqueeze(-1)
+        backbone = torch.stack(coords[:4], dim=-1).unsqueeze(1).unsqueeze(2)
+        CA_ref = coords[0].unsqueeze(1).expand(-1, reference.shape[1], -1, -1)
+        indexed_CA_ref = torch.gather(CA_ref, 2, reference.unsqueeze(-1).expand(-1, -1, -1, 3))
+        CA_ref = indexed_CA_ref.unsqueeze(-2).unsqueeze(-1)
+        expanded_mat = mat.unsqueeze(1).expand(-1, 2, -1, -1, -1)
+        R =  torch.gather(expanded_mat, 2, reference.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, 3, 3)).unsqueeze(-3)
+        vectors_pred = torch.inverse(R) @ (backbone - CA_ref)
+        self.vector_loss = torch.sum(loss(vectors_pred, vectors_label) * self.weights, dim=[1, -2, -1])
+        return self.vector_loss.mean()
 
+    def _dihedral_term(self, mat, coords):
+        return 0
 
 class Rosetta(GradientDescent):
     """
@@ -197,24 +229,22 @@ class Rosetta(GradientDescent):
 
 
 def main():
-    # get command line arguments and process inputs
     args = get_args()
-    for i in SeqIO.parse(args.fasta, 'fasta'):
-        seq = str(i.seq)
-        seq = [aa2int[i] for i in seq]
-        name = i.description
-    pred = get_pred(args.pred, args.mode)
+    name, seq = load_fasta(args.fasta)
+    pred = load_pred(args.pred, args.mode)
     params = get_params(seq)
     
-    print("Initializing environment...")
+    print("Initializing GDFold2...")
     folder = globals()[args.mode](seq, pred, params, args.npose, args.steps, args.device)
-    print("Folding...")
+    
+    print("Folding protein structure(s)...")
     coords = folder._fold()
 
-    # dump to pdb files
     if not os.path.exists(args.output):
         os.makedirs(args.output)
-    output(args.output, name, seq, coords)
+    
+    for b in range(args.npose):
+        dump2pdb(args.output, f'{name}_{b+1}.pdb', seq, coords[b])
 
 
 if __name__ == '__main__':

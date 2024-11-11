@@ -1,0 +1,11 @@
+Rank	    Name    	QA-Score
+ 1  	6ka2b_2.pdb 	 0.2372 
+ 2  	6ka2b_8.pdb 	 0.2363 
+ 3  	6ka2b_9.pdb 	 0.2326 
+ 4  	6ka2b_4.pdb 	 0.2324 
+ 5  	6ka2b_7.pdb 	 0.2311 
+ 6  	6ka2b_0.pdb 	 0.2302 
+ 7  	6ka2b_1.pdb 	 0.2295 
+ 8  	6ka2b_3.pdb 	 0.2269 
+ 9  	6ka2b_6.pdb 	 0.2242 
+ 10 	6ka2b_5.pdb 	 0.2182 

@@ -2,32 +2,51 @@ import os
 import json
 import torch
 import numpy as np
+import pandas as pd
+from Bio import SeqIO
+from biopandas.pdb import PandasPdb
+from pyrosetta import *
 
 int2AA = {0:'GLY', 1:'ALA', 2:'CYS', 3:'GLU', 4:'ASP', 5:'PHE', 6:'ILE', 7:'HIS', 8:'LYS', 
           9:'MET', 10:'LEU', 11:'ASN', 12:'GLN', 13:'PRO', 14:'SER', 15:'ARG', 16:'THR', 
           17:'TRP', 18:'VAL', 19:'TYR'}
 aa2int = {'G':0, 'A':1, 'C':2, 'E':3, 'D':4, 'F':5, 'I':6, 'H':7, 'K':8, 'M':9, 'L':10, 
           'N':11, 'Q':12, 'P':13, 'S':14, 'R':15, 'T':16, 'W':17, 'V':18, 'Y':19}
+symbols = ['N', 'CA', 'C', 'O', 'CB', 'CEN', 'H']
+elements = ['N', 'C', 'C', 'O', 'C', 'X' ,'H']
 
-def fasta2seq(fasta):
-    with open(fasta, 'r') as f:
-        seq = list(''.join(line.strip() for line in f if not line.startswith('>')))
-    return [aa2int[i] for i in seq]
+def load_fasta(fasta):
+    sequences = SeqIO.parse(fasta, "fasta")
+    for sequence in sequences:
+        name = sequence.id
+        seq = [aa2int[s] for s in sequence.seq]
+    return name, seq
 
-def get_pred(pred, mode='Cerebra'):
+def all2cen(input, output):
+    init("-mute all")
+    pose = pose_from_file(input)
+    switch_cen = SwitchResidueTypeSetMover("centroid")
+    switch_cen.apply(pose)
+    pose.dump_pdb(output)
+
+def load_pred(pred, mode='SPIRED'):
     data = np.load(pred)
     trans = lambda x: torch.FloatTensor(x)
-    if mode == 'Cerebra':
-        info = {'reference': list(data['reference']), 
-                'rotation': trans(data['rotation']),
-                'translation': trans(data['translation']),
-                'dihedrals': trans(data['dihedrals']),
-                'plddt': trans(data['plddt'])}
     if mode == 'SPIRED':
         info = {'reference': list(data['reference']), 
                 'translation': trans(data['translation']),
                 'dihedrals': trans(data['dihedrals']),
                 'plddt': trans(data['plddt'])}
+    if mode == 'Cerebra':
+        info = {'reference': list(data['reference']), 
+                'rotation': trans(data['rotation']),
+                'translation': trans(data['translation']), 
+                'dihedrals': trans(data['dihedrals']),
+                'plddt': trans(data['plddt'])}
+    if mode == 'Dynamics':
+        info = {'reference': trans(data['reference']), 
+                'rotation': trans(data['rotation']),
+                'translation': trans(data['translation'])}
     if mode == 'Rosetta':
         info = {'dist': trans(data['dist']).permute(2, 0, 1),
                 'omega': trans(data['omega']).permute(2, 0, 1),
@@ -38,7 +57,7 @@ def get_pred(pred, mode='Cerebra'):
 def get_params(seq):
     params = {}
     scriptdir = os.path.dirname(os.path.realpath(__file__))
-    with open(f'{scriptdir}/params.json') as jsonfile:
+    with open(os.path.join(scriptdir, 'params.json')) as jsonfile:
         statistic = json.load(jsonfile)
     for key in statistic.keys():
         params[key] = torch.FloatTensor(np.array(statistic[key]))
@@ -72,36 +91,27 @@ def vdw_dist(seq, vdw_radius):
     vdw_dist = vdw_radius.unsqueeze(0) + vdw_radius.unsqueeze(1) - 1.2
     return vdw_dist
 
-def output(path, name, seq, coords):
-    [CA, C, N, CB, CEN, O, H] = [coords[..., i] for i in range(7)]
-    all_coords = np.stack([N, CA, C, O, CB, CEN, H], axis=-2)
-    symbols = ['N', 'CA', 'C', 'O', 'CB', 'CEN', 'H']
-    elements = ['N', 'C', 'C', 'O', 'C', 'X' ,'H']
-    for n in range(coords.shape[0]):
-        file_name = f'{path}/{name}_{n+1}.pdb'
-        with open(file_name, 'w') as f:
-            natom, chain = 1, 'A'
-            for l in range(len(seq)):
-                for a in range(4):
-                    f.write('{:<6}{:>5} {:^4} {:<3} {:>1}{:>4}    {:>8.3f}{:>8.3f}{:>8.3f}{:>6.2f}{:>6.2f}{:>12}\n'.format(
-                            'ATOM', int(natom), symbols[a], int2AA.get(seq[l]), chain, l+1, all_coords[n,l,a,0], 
-                            all_coords[n,l,a,1], all_coords[n,l,a,2], 1.00, 0.00, elements[a]))
-                    natom += 1
-                if int2AA.get(seq[l]) != 'GLY':
-                    for a in range(4, 6):
-                        f.write('{:<6}{:>5} {:^4} {:<3} {:>1}{:>4}    {:>8.3f}{:>8.3f}{:>8.3f}{:>6.2f}{:>6.2f}{:>12}\n'.format(
-                            'ATOM', int(natom), symbols[a], int2AA.get(seq[l]), chain, l+1, all_coords[n,l,a,0], 
-                            all_coords[n,l,a,1], all_coords[n,l,a,2], 1.00, 0.00, elements[a]))
-                        natom += 1
-                else:
-                    f.write('{:<6}{:>5} {:^4} {:<3} {:>1}{:>4}    {:>8.3f}{:>8.3f}{:>8.3f}{:>6.2f}{:>6.2f}{:>12}\n'.format(
-                            'ATOM', int(natom), symbols[5], int2AA.get(seq[l]), chain, l+1, all_coords[n,l,5,0], 
-                            all_coords[n,l,5,1], all_coords[n,l,5,2], 1.00, 0.00, elements[5]))
-                    natom += 1
-                if int2AA.get(seq[l]) != 'PRO':
-                    f.write('{:<6}{:>5} {:^4} {:<3} {:>1}{:>4}    {:>8.3f}{:>8.3f}{:>8.3f}{:>6.2f}{:>6.2f}{:>12}\n'.format(
-                            'ATOM', int(natom), symbols[-1], int2AA.get(seq[l]), chain, l+1, all_coords[n,l,-1,0], 
-                            all_coords[n,l,-1,1], all_coords[n,l,-1,2], 1.00, 0.00, elements[-1]))
-                    natom += 1
-                else:
-                    continue
+def dump2pdb(path, name, seq, coords):
+    sequence = [int2AA.get(s) for s in seq]
+    CA, C, N, CB, CEN, O, H = coords
+    x_coord, y_coord, z_coord = [], [], []
+    for l in range(len(sequence)):
+        for atom_type in [N, CA, C, O, CB, CEN, H]:
+            x_coord.append(float('{:.3f}'.format(atom_type[l][0])))
+            y_coord.append(float('{:.3f}'.format(atom_type[l][1])))
+            z_coord.append(float('{:.3f}'.format(atom_type[l][2])))
+    length = 7 * len(sequence)
+    atoms = pd.DataFrame({"record_name": ["ATOM"] * length, "atom_number": list(np.arange(1, length+1)), "blank_1": [''] * length,
+                          "atom_name": ['N', 'CA', 'C', 'O', 'CB', 'CEN', 'H'] * len(sequence), "alt_loc": [''] * length,
+                          "residue_name": [res for res in sequence for _ in range(7)], "blank_2": [''] * length, "chain_id": ["A"]  * length, 
+                          "residue_number": [n+1 for n in range(len(sequence)) for _ in range(7)], "insertion": [''] * length, "blank_3": [''] * length, 
+                          "x_coord": x_coord, "y_coord": y_coord, "z_coord": z_coord, "occupancy": [1.0] * length, "b_factor": [0.0] * length, 
+                          "blank_4": [''] * length, "segment_id": [''] * length, "element_symbol": ['N', 'C', 'C', 'O', 'C', 'X' ,'H'] * len(sequence), 
+                          "charge": [np.nan] * length, "line_idx": list(np.arange(length))})
+    atoms.drop(atoms[(atoms.residue_name == "GLY") & (atoms.atom_name == "CB")].index, inplace=True)
+    atoms.drop(atoms[(atoms.residue_name == "PRO") & (atoms.atom_name == "H")].index, inplace=True)
+    atoms["atom_number"] = list(np.arange(1, len(atoms)+1))
+    atoms["line_idx"] = list(np.arange(len(atoms)))
+    pdb_parse = PandasPdb()
+    pdb_parse.df['ATOM'] = atoms
+    pdb_parse.to_pdb(os.path.join(path, name))
