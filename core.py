@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from tqdm import tqdm
 
 class Network(nn.Module):
     """
@@ -267,39 +268,50 @@ class GradientDescent:
                                        loss(coords[2][:, 2:], label_N), dim=-1)
         return self.dihedral_loss.mean()
     
-    def _step(self, opt, epoch):
-        CA, Theta = self.model(epoch)
-        if epoch < self.steps:
-            for param_group in opt.param_groups:
-                param_group['lr'] = 0.6
-            mat, coords = self._info(CA, Theta)
-        else:
-            for param_group in opt.param_groups:
-                param_group['lr'] = 0.02
-            mat, coords = self._info(CA, Theta, OH=True)
-        vector_loss = self._vector_term(mat, coords)
-        dihedral_loss = self._dihedral_term(mat, coords)
-        if epoch < self.steps:
-            loss = vector_loss + dihedral_loss
-        else:
-            extra_loss = self._peptide_term(coords) + self._global_term(coords)
-            if epoch < self.steps + 400:
-                loss = vector_loss + dihedral_loss + extra_loss
-            else:
-                vdw_loss = self._vdw_term(coords)
-                if epoch < self.steps + 600:
-                    loss = vector_loss + dihedral_loss + extra_loss + 1e1 * vdw_loss
-                else:
-                    loss = vector_loss + dihedral_loss + extra_loss + 5 * vdw_loss
-        opt.zero_grad()
-        loss.backward()
-        opt.step()
-    
     def _fold(self):
-        opt = torch.optim.Adam(self.model.parameters())
-        for epoch in range(self.steps + 800):
-            self._step(opt, epoch)
-        CA, Theta = self.model(epoch)
+        opt = torch.optim.Adam(self.model.parameters(), lr=0.6)
+        print("Stage 1: Adding the geometric constraints...")
+        for epoch in range(self.steps):
+            CA, Theta = self.model(epoch)
+            mat, coords = self._info(CA, Theta)
+            vector_loss = self._vector_term(mat, coords)
+            dihedral_loss = self._dihedral_term(mat, coords)
+            loss = vector_loss + dihedral_loss
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+
+        # reduce the learning rate
+        for param_group in opt.param_groups:
+            param_group['lr'] = 0.02
+        print("Stage 2: Adding the peptide and distance constraints...")
+        for epoch in range(400):
+            CA, Theta = self.model(epoch)
+            mat, coords = self._info(CA, Theta, OH=True)
+            vector_loss = self._vector_term(mat, coords)
+            dihedral_loss = self._dihedral_term(mat, coords)
+            extra_loss = self._peptide_term(coords) + self._global_term(coords)
+            loss = vector_loss + dihedral_loss + extra_loss
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+
+        print("Stage 3: Adding the van der Waals repulsion constraint...")
+        for epoch in range(400):
+            vdw_weight = 10 if epoch < 200 else 5
+            CA, Theta = self.model(epoch)
+            mat, coords = self._info(CA, Theta, OH=True)
+            vector_loss = self._vector_term(mat, coords)
+            dihedral_loss = self._dihedral_term(mat, coords)
+            extra_loss = self._peptide_term(coords) + self._global_term(coords)
+            vdw_loss = self._vdw_term(coords)
+            loss = vector_loss + dihedral_loss + extra_loss + vdw_weight * vdw_loss
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+
+        with torch.no_grad():
+            CA, Theta = self.model(epoch)
         _, coords = self._info(CA, Theta, OH=True)
         output = torch.stack(coords, dim=1).detach().cpu().numpy()
         return output

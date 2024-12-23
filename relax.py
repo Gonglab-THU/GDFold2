@@ -2,12 +2,12 @@ import timeit
 import argparse
 from pyrosetta import *
 
-parser = argparse.ArgumentParser(description="FastRelax procedure for GDFold2 predictions")
-parser.add_argument('--input', type=str, help='input model')
-parser.add_argument('--output', type=str, help='output model (.pdb format)')
-parser.add_argument('--repeat', type=int, default=2, help='number of repeats (default: %(default)s)')
-parser.add_argument('--cycle', type=int, default=200, help='number of cycles (default: %(default)s)')
-parser.add_argument('--seed', type=int, default=0, help='random seed in pyRosetta (default: %(default)s)')
+parser = argparse.ArgumentParser(description="Specific FastRelax procedure for GDFold2 predictions")
+parser.add_argument('--input', type=str, help='Input unrelaxed model')
+parser.add_argument('--output', type=str, help='Output model name (.pdb format)')
+parser.add_argument('--repeat', type=int, default=2, help='The number of fastrelax repeats (default: %(default)s)')
+parser.add_argument('--cycle', type=int, default=200, help='The maximum number of cycles (default: %(default)s)')
+parser.add_argument('--seed', type=int, default=0, help='The random seed of pyRosetta (default: %(default)s)')
 args = parser.parse_args()
 
 def initialize(repeat, cycle, seed):
@@ -29,10 +29,18 @@ def fastrelax(input, output):
     fr.apply(pose)
     pose.dump_pdb(output)
 
+def all2cen(input, output):
+    init("-mute all")
+    pose = pose_from_file(input)
+    switch_cen = SwitchResidueTypeSetMover("centroid")
+    switch_cen.apply(pose)
+    pose.dump_pdb(output)
+
 if __name__ == '__main__':
-    start_time = timeit.default_timer()
+    s_time = timeit.default_timer()
     initialize(args.repeat, args.cycle, args.seed)
     print("Performing FastRelax...")
     fastrelax(args.input, args.output)
-    end_time = timeit.default_timer()
-    print('Running time: {:.2f}s'.format(end_time - start_time))
+    e_time = timeit.default_timer()
+    print(">>> Task finished! Total execution time: {:.2f}s <<<".format(e_time - s_time))
+    

@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 from Bio import SeqIO
 from biopandas.pdb import PandasPdb
-from pyrosetta import *
 
 int2AA = {0:'GLY', 1:'ALA', 2:'CYS', 3:'GLU', 4:'ASP', 5:'PHE', 6:'ILE', 7:'HIS', 8:'LYS', 
           9:'MET', 10:'LEU', 11:'ASN', 12:'GLN', 13:'PRO', 14:'SER', 15:'ARG', 16:'THR', 
@@ -21,13 +20,6 @@ def load_fasta(fasta):
         name = sequence.id
         seq = [aa2int[s] for s in sequence.seq]
     return name, seq
-
-def all2cen(input, output):
-    init("-mute all")
-    pose = pose_from_file(input)
-    switch_cen = SwitchResidueTypeSetMover("centroid")
-    switch_cen.apply(pose)
-    pose.dump_pdb(output)
 
 def load_pred(pred, mode='SPIRED'):
     data = np.load(pred)

@@ -8,8 +8,8 @@ from torch_geometric.data import Batch
 from tqdm import tqdm
 from graphs import *
 
-parser = argparse.ArgumentParser(description="Protein Structure Quality Assessment Model")
-parser.add_argument('--input', type=str, help='Directory containing multiple structures of the same target protein')
+parser = argparse.ArgumentParser(description="Quality assessment model")
+parser.add_argument('--input', type=str, help='The directory path containing structures output by GDFold2')
 args = parser.parse_args()
 
 def main():
@@ -20,11 +20,11 @@ def main():
     model.eval()
     poses = [t for t in os.listdir(args.input) if t.endswith('.pdb')]
     dataset = []
-    for pose in tqdm(poses):
+    for pose in tqdm(poses, desc="Evaluating"):
         try:
             seq, coords = load_pdb(os.path.join(args.input, pose))
-        except:
-            print(f"File ({pose}) format is illegal!")
+        except Exception as e:
+            print(f"{e}. The format of file {pose} is illegal!")
             sys.exit(0)
         graph = GraphData(coords, seq, [0, 0, 0]).features()
         data = GeoData.Data(name=pose, seq=graph['seq'].long(),
@@ -44,7 +44,7 @@ def main():
         f.write("{:^4}\t{:^12}\t{:^8}\n".format('Rank', 'Name', 'QA-Score'))
         for i in range(len(scores)):
             f.write("{:^4}\t{:^12}\t{:^8.4f}\n".format(i+1, names[i], scores[i]))
-    print(f"Evaluation result (rank.txt) is saved in {args.input}")
+    print(">>> Task finished! Evaluation result (rank.txt) is stored in {} <<<".format(args.input))
 
 if __name__ == '__main__':
     main()

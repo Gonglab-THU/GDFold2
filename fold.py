@@ -227,28 +227,33 @@ class Rosetta(GradientDescent):
         loss_angle = self.weight * (loss_omega + loss_theta + loss_phi)
         return torch.mean(loss_angle)
 
-
 def main():
+    s_time = timeit.default_timer()
     args = get_args()
-    name, seq = load_fasta(args.fasta)
-    pred = load_pred(args.pred, args.mode)
-    params = get_params(seq)
+    assert os.path.exists(args.fasta), "Input fasta file does not exist!"
+    assert os.path.exists(args.pred), "Input npz file does not exist!"
+    os.makedirs(args.output, exist_ok=True)
     
-    print("Initializing GDFold2...")
-    folder = globals()[args.mode](seq, pred, params, args.npose, args.steps, args.device)
-    
-    print("Folding protein structure(s)...")
-    coords = folder._fold()
+    try:
+        name, seq = load_fasta(args.fasta)
+        pred = load_pred(args.pred, args.mode)
+        params = get_params(seq)
 
-    if not os.path.exists(args.output):
-        os.makedirs(args.output)
+        print("Initializing GDFold2...")
+        folder = globals()[args.mode](seq, pred, params, args.npose, args.steps, args.device)
+        print("Initialization completed!")
+    except Exception as e:
+        print(e)
+    
+    print("========== Folding {} protein {} ==========".format(args.npose, 'structures' if args.npose > 1 else 'structure'))
+    coords = folder._fold()
     
     for b in range(args.npose):
         dump2pdb(args.output, f'{name}_{b+1}.pdb', seq, coords[b])
-
+    print(f"Predicted structures are stored in: {os.path.abspath(args.output)}")
+    
+    e_time = timeit.default_timer()
+    print(">>> Task finished! Total execution time: {:.2f}s <<<".format(e_time - s_time))
 
 if __name__ == '__main__':
-    start_time = timeit.default_timer()
     main()
-    end_time = timeit.default_timer()
-    print('Running time: {:.2f}s'.format(end_time - start_time))
