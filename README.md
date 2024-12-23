@@ -1,7 +1,7 @@
 # GDFold2
 GDFold2 is a protein folding environment. It is designed to rapidly and parallelly fold the protein structures based on arbitrary predicted constraints, which could be freely integrated into the environment as user-defined loss functions. We provide four folding modes to match the different geometric information. You can also customize the constraints according to your specific needs.
 
-![Dynamics path](Dynamics/dynamics.gif, "Dynamics path")
+![Dynamics path](Dynamics/dynamics.gif "Dynamics path")
 
 ## Getting Started
 
