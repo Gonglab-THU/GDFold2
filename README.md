@@ -22,8 +22,7 @@ conda activate GDFold2
 ### Usage
 #### 1. GDFold2
 * `fold.py`: input protein sequence (.fasta format) and predicted geometric information (.npz format) and output protein structure(s).
-  
-  Example:
+
   ```bash
   python fold.py example/test.fasta example/test.npz example -d cuda
   ```
@@ -31,8 +30,7 @@ conda activate GDFold2
 #### 2. FastRelax
 * Please install [PyRosetta](https://www.pyrosetta.org/home/licensing-pyrosetta) first!
 * `relax.py`: perform FastRelax procedure.
-  
-  Example:
+
   ```bash
   python relax.py --input example/101M_1.pdb --output example/relax.pdb
   ```
@@ -40,22 +38,19 @@ conda activate GDFold2
 #### 3. QAmodel
 * `QAmodel/run.py`: input a directory containing multiple protein models folded by GDFold2 and output their ranking file `rank.txt` in the input directory.
 
-  Example:
   ```bash
   python QAmodel/run.py --input QAmodel/example
   ```
 
 #### 4. Dynamics
-* Step1: run `Dynamics/pdb2cst.py` to convert two conformational states of the same protein target into geometric constraint file (`comb.npz`).
+* Step 1: run `Dynamics/pdb2cst.py` to convert two conformational states of the same protein target into geometric constraint file (`comb.npz`).
   
-  Example:
   ```bash
   python Dynamics/pdb2cst.py --state1 Dynamics/1ake_A.pdb --state2 Dynamics/4ake_A.pdb --output Dynamics
   ```
 
-* Step2: run `fold.py` to predict the possible conformations in the transition path between the two conformational states.
+* Step 2: run `fold.py` to predict the possible conformations in the transition path between the two conformational states.
   
-  Example:
   ```bash
   python fold.py Dynamics/comb.fasta Dynamics/comb.npz Dynamics/dynamics -n 50 -m Dynamics -d cuda
   ```
@@ -65,11 +60,10 @@ We provide a web sever ([GDFold2](https://structpred.life.tsinghua.edu.cn/server
 
 ## Citation
 If you use this code in your research, please cite our paper:
-```bash  
-@article {Mi2024.03.13.584741,
-	author = {Mi, Tianyu and Xiao, Nan and Gong, Haipeng},
-  title = {GDFold2: a fast and parallelizable protein folding environment with freely defined objective functions},
-	year = {2024},
-	doi = {10.1101/2024.03.13.584741}
-}
+```
+@article
+author = {Mi, Tianyu and Gong, Haipeng},
+title = {GDFold2: a fast and parallelizable protein folding environment with freely defined objective functions},
+year = {2024},
+doi = {10.1101/2024.03.13.584741}
 ```
